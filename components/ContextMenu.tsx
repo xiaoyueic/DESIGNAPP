@@ -1,5 +1,6 @@
+
 import React, { useEffect, useRef } from 'react';
-import { Copy, Trash2, Layers, ArrowUp, ArrowDown, CopyPlus, ClipboardPaste } from 'lucide-react';
+import { Copy, Trash2, Layers, ArrowUp, ArrowDown, CopyPlus, ClipboardPaste, Group, Ungroup } from 'lucide-react';
 
 interface ContextMenuProps {
   x: number;
@@ -11,11 +12,14 @@ interface ContextMenuProps {
   onDelete: () => void;
   onBringForward: () => void;
   onSendBackward: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
   hasSelection: boolean;
+  isGrouped: boolean;
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({
-  x, y, onClose, onCopy, onPaste, onDuplicate, onDelete, onBringForward, onSendBackward, hasSelection
+  x, y, onClose, onCopy, onPaste, onDuplicate, onDelete, onBringForward, onSendBackward, onGroup, onUngroup, hasSelection, isGrouped
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +61,24 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
          </div>
       </button>
       
+      <div className="h-px bg-slate-100 my-1 mx-2" />
+      
+      {isGrouped ? (
+        <button onClick={onUngroup} className="group flex items-center justify-between px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600 transition-colors mx-1 rounded-md">
+            <div className="flex items-center gap-2.5">
+                <Ungroup size={14} className="text-slate-400 group-hover:text-indigo-500"/> <span>Ungroup</span>
+            </div>
+            <span className="text-slate-400 text-[10px] font-medium tracking-wide">⌘⇧G</span>
+        </button>
+      ) : (
+        <button onClick={onGroup} className="group flex items-center justify-between px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600 transition-colors mx-1 rounded-md">
+            <div className="flex items-center gap-2.5">
+                <Group size={14} className="text-slate-400 group-hover:text-indigo-500"/> <span>Group</span>
+            </div>
+            <span className="text-slate-400 text-[10px] font-medium tracking-wide">⌘G</span>
+        </button>
+      )}
+
       <div className="h-px bg-slate-100 my-1 mx-2" />
       
       <button onClick={onBringForward} className="group flex items-center justify-between px-3 py-2 hover:bg-indigo-50 hover:text-indigo-600 transition-colors mx-1 rounded-md">

@@ -1,11 +1,12 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { CanvasElement } from '../types';
-import { RotateCw, Lock } from 'lucide-react';
+import { ImageOff } from 'lucide-react';
 
 interface ElementNodeProps {
   element: CanvasElement;
   isSelected: boolean;
-  onMouseDown: (e: React.MouseEvent, id: string, type: 'drag' | 'resize' | 'rotate', handle?: string) => void;
+  onMouseDown: (e: React.MouseEvent, id: string) => void;
   onUpdate: (id: string, updates: Partial<CanvasElement>) => void;
 }
 
@@ -16,7 +17,19 @@ const ElementNode: React.FC<ElementNodeProps> = ({
   onUpdate
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+      if (!isSelected) setIsEditing(false);
+  }, [isSelected]);
+
+  // Reset error state if content (URL) changes
+  useEffect(() => {
+      if (element.type === 'image') {
+          setImgError(false);
+      }
+  }, [element.content, element.type]);
 
   useEffect(() => {
     if (isEditing && textAreaRef.current) {
@@ -52,12 +65,13 @@ const ElementNode: React.FC<ElementNodeProps> = ({
     top: element.y,
     width: element.width,
     height: element.height,
-    transform: `rotate(${element.rotation}deg)`,
+    transform: `rotate(${element.rotation}deg) scaleX(${element.flipX ? -1 : 1}) scaleY(${element.flipY ? -1 : 1})`,
     zIndex: element.zIndex,
     opacity: element.opacity ?? 1,
-    cursor: element.locked ? 'default' : (isSelected ? 'move' : 'default'),
+    cursor: element.locked ? 'default' : 'move',
     fontFamily: element.fontFamily || 'Inter, sans-serif',
-    pointerEvents: 'auto'
+    pointerEvents: 'auto',
+    willChange: 'transform, left, top',
   };
 
   const renderContent = () => {
@@ -65,11 +79,13 @@ const ElementNode: React.FC<ElementNodeProps> = ({
       case 'rectangle':
         return (
           <div
-            className="w-full h-full border-box transition-all"
+            className="w-full h-full transition-all"
             style={{ 
-                backgroundColor: element.backgroundColor || '#cbd5e1',
-                borderRadius: '4px',
-                border: element.border || 'none'
+                background: element.backgroundColor || '#cbd5e1',
+                borderRadius: `${element.borderRadius || 0}px`,
+                borderWidth: `${element.borderWidth || 0}px`,
+                borderColor: element.borderColor || 'transparent',
+                borderStyle: element.borderStyle || 'solid',
             }}
           />
         );
@@ -78,22 +94,65 @@ const ElementNode: React.FC<ElementNodeProps> = ({
           <div
             className="w-full h-full rounded-full transition-all"
             style={{ 
-                backgroundColor: element.backgroundColor || '#cbd5e1',
-                border: element.border || 'none'
+                background: element.backgroundColor || '#cbd5e1',
+                borderWidth: `${element.borderWidth || 0}px`,
+                borderColor: element.borderColor || 'transparent',
+                borderStyle: element.borderStyle || 'solid',
             }}
           />
         );
       case 'image':
+        if (imgError) {
+             return (
+                 <div className="w-full h-full bg-slate-100 flex flex-col items-center justify-center text-slate-400 border border-slate-300 rounded overflow-hidden select-none">
+                     <ImageOff size={24} strokeWidth={1.5} />
+                     <span className="text-[10px] mt-1 font-medium">Image failed</span>
+                 </div>
+             );
+        }
         return (
-          <img
-            src={element.content}
-            alt="element"
-            className="w-full h-full object-cover pointer-events-none select-none transition-all"
-            style={{ filter: getFilterString() }}
-            draggable={false}
-          />
+          <div className="w-full h-full overflow-hidden" 
+               style={{ 
+                   borderRadius: `${element.borderRadius || 0}px`,
+                   borderWidth: `${element.borderWidth || 0}px`,
+                   borderColor: element.borderColor || 'transparent',
+                   borderStyle: element.borderStyle || 'solid',
+                }}>
+             <img
+                src={element.content}
+                alt="element"
+                className="w-full h-full object-cover pointer-events-none select-none transition-all"
+                style={{ filter: getFilterString() }}
+                draggable={false}
+                onError={() => setImgError(true)}
+             />
+          </div>
         );
       case 'text':
+        const textStyle: React.CSSProperties = {
+            fontSize: `${element.fontSize || 16}px`,
+            color: element.color || '#000',
+            lineHeight: element.lineHeight || 1.4,
+            letterSpacing: `${element.letterSpacing || 0}em`,
+            fontWeight: element.fontWeight || 'normal',
+            fontStyle: element.fontStyle || 'normal',
+            textDecoration: element.textDecoration || 'none',
+            textTransform: element.textTransform || 'none',
+            textAlign: element.textAlign || 'left',
+            fontFamily: element.fontFamily || 'Inter, sans-serif',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            display: 'flex',
+            width: '100%',
+            height: '100%',
+        };
+
+        const alignStyle = {
+             alignItems: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+             justifyContent: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+             textAlign: element.textAlign || 'left'
+        };
+
         if (isEditing) {
             return (
                 <textarea
@@ -103,33 +162,19 @@ const ElementNode: React.FC<ElementNodeProps> = ({
                     onBlur={handleBlur}
                     onKeyDown={(e) => { if(e.key === 'Escape') setIsEditing(false); e.stopPropagation(); }}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className="w-full h-full bg-transparent resize-none outline-none overflow-hidden"
+                    className="w-full h-full bg-transparent resize-none outline-none overflow-hidden p-0 m-0 border-none"
                     style={{
-                        fontSize: `${element.fontSize || 16}px`,
-                        color: element.color || '#000',
-                        lineHeight: 1.2,
-                        fontWeight: element.fontWeight || 'normal',
-                        fontStyle: element.fontStyle || 'normal',
-                        textDecoration: element.textDecoration || 'none',
-                        textAlign: element.textAlign || 'left',
-                        fontFamily: element.fontFamily || 'Inter, sans-serif'
+                        ...textStyle,
                     }}
                 />
             );
         }
         return (
             <div 
-                className="w-full h-full flex items-center p-0 whitespace-pre-wrap break-words select-none"
+                className="w-full h-full p-0 m-0 select-none"
                 style={{
-                    fontSize: `${element.fontSize || 16}px`,
-                    color: element.color || '#000',
-                    lineHeight: 1.2,
-                    fontWeight: element.fontWeight || 'normal',
-                    fontStyle: element.fontStyle || 'normal',
-                    textDecoration: element.textDecoration || 'none',
-                    textAlign: element.textAlign || 'left',
-                    alignItems: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
-                    justifyContent: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                    ...textStyle,
+                    ...alignStyle,
                 }}
             >
                 {element.content}
@@ -144,58 +189,16 @@ const ElementNode: React.FC<ElementNodeProps> = ({
     <div
       style={style}
       className="absolute group select-none"
-      onMouseDown={(e) => !element.locked && onMouseDown(e, element.id, 'drag')}
+      onMouseDown={(e) => !element.locked && !isEditing && onMouseDown(e, element.id)}
       onDoubleClick={handleDoubleClick}
     >
       <div className={`w-full h-full relative transition-shadow duration-200 ${
-          isSelected ? 'outline outline-2 outline-indigo-500' : 'hover:outline hover:outline-2 hover:outline-indigo-300'
-      } ${element.locked && isSelected ? 'outline-red-400' : ''}`}>
+          isSelected 
+          ? '' 
+          : 'hover:outline hover:outline-1 hover:outline-indigo-400/50'
+      }`}>
           {renderContent()}
-          
-          {element.locked && isSelected && (
-              <div className="absolute -top-3 -right-3 text-red-500 bg-white rounded-full p-1.5 shadow-md z-50 border border-slate-100">
-                  <Lock size={12} />
-              </div>
-          )}
       </div>
-
-      {isSelected && !element.locked && !isEditing && (
-        <>
-          {/* Corner Handles */}
-          <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full cursor-nw-resize z-50 shadow-sm transition-transform hover:scale-125"
-            onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'nw'); }} />
-            
-          <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full cursor-ne-resize z-50 shadow-sm transition-transform hover:scale-125"
-            onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'ne'); }} />
-            
-          <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full cursor-sw-resize z-50 shadow-sm transition-transform hover:scale-125"
-            onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'sw'); }} />
-            
-          <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full cursor-se-resize z-50 shadow-sm transition-transform hover:scale-125"
-            onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'se'); }} />
-
-          {/* Side Pills */}
-          <div className="absolute top-1/2 -left-1 w-1.5 h-6 -mt-3 bg-white border border-indigo-500 rounded-full cursor-w-resize z-40 hidden md:block shadow-sm hover:scale-x-150 transition-transform"
-             onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'w'); }}/>
-          <div className="absolute top-1/2 -right-1 w-1.5 h-6 -mt-3 bg-white border border-indigo-500 rounded-full cursor-e-resize z-40 hidden md:block shadow-sm hover:scale-x-150 transition-transform"
-             onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'e'); }}/>
-          <div className="absolute left-1/2 -top-1 w-6 h-1.5 -ml-3 bg-white border border-indigo-500 rounded-full cursor-n-resize z-40 hidden md:block shadow-sm hover:scale-y-150 transition-transform"
-             onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 'n'); }}/>
-          <div className="absolute left-1/2 -bottom-1 w-6 h-1.5 -ml-3 bg-white border border-indigo-500 rounded-full cursor-s-resize z-40 hidden md:block shadow-sm hover:scale-y-150 transition-transform"
-             onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'resize', 's'); }}/>
-
-          {/* Rotation Handle */}
-          <div 
-            className="absolute -bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center group cursor-grab active:cursor-grabbing"
-            onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e, element.id, 'rotate', 'rot'); }}
-          >
-             <div className="w-px h-4 bg-indigo-500"></div>
-             <div className="w-6 h-6 bg-white border border-indigo-500 rounded-full shadow-md flex items-center justify-center text-indigo-500 hover:bg-indigo-50 transition-colors">
-                <RotateCw size={12} />
-             </div>
-          </div>
-        </>
-      )}
     </div>
   );
 };

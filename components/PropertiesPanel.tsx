@@ -1,301 +1,570 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { CanvasElement, ElementFilters } from '../types';
+import { CanvasElement, CanvasConfig, AlignType, DistributeType, LayerOrderType } from '../types';
 import { 
-  Bold, Italic, Underline, Strikethrough,
+  Bold, Italic, Underline,
   AlignLeft, AlignCenter, AlignRight,
-  Layers, Trash2, Copy, Lock, Unlock,
-  Image as ImageIcon, SlidersVertical,
-  LayoutGrid, ArrowUpToLine, ArrowDownToLine, ArrowLeftToLine, ArrowRightToLine,
-  ChevronDown, Type, Droplet, Sun
+  Trash2, Copy, Lock, Unlock,
+  ChevronDown, Droplet, List,
+  Group, Ungroup, 
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+  ArrowUpToLine, ArrowDownToLine, MoveUp, MoveDown,
+  Type, CaseSensitive, FlipHorizontal, FlipVertical,
+  Layout, Layers as LayersIcon
 } from 'lucide-react';
+import ColorPickerPanel from './ColorPickerPanel';
 
 interface PropertiesPanelProps {
-  selectedElement: CanvasElement | null;
-  canvasConfig: { width: number; height: number };
+  selectedElements: CanvasElement[];
+  canvasConfig: CanvasConfig;
   onUpdateElement: (id: string, updates: Partial<CanvasElement>) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
+  onUpdateElements: (ids: string[], updates: Partial<CanvasElement>) => void;
+  onUpdateCanvas: (updates: Partial<CanvasConfig>) => void;
+  onDelete: (ids: string[]) => void;
+  onDuplicate: (ids: string[]) => void;
+  onAlign: (type: AlignType) => void;
+  onDistribute: (type: DistributeType) => void;
+  onLayerOrder: (type: LayerOrderType) => void;
 }
 
-// Helper component for tool buttons
 const ToolButton = ({ onClick, isActive, icon: Icon, label, disabled }: any) => (
     <button 
         onClick={onClick}
         disabled={disabled}
         title={label}
-        className={`p-1.5 rounded-md transition-all flex items-center justify-center ${
+        className={`p-1.5 rounded transition-all flex items-center justify-center mx-0.5 ${
             isActive 
-            ? 'bg-indigo-50 text-indigo-600' 
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-        } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+            ? 'bg-white/20 text-white shadow-sm' 
+            : 'text-gray-400 hover:bg-white/10 hover:text-white'
+        } ${disabled ? 'opacity-30 cursor-not-allowed hover:bg-transparent' : ''}`}
     >
-        <Icon size={18} />
+        <Icon size={18} strokeWidth={2} />
     </button>
 );
 
-// Helper for divider
-const Divider = () => <div className="w-px h-6 bg-slate-200 mx-2"></div>;
-
 const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ 
-  selectedElement, 
+  selectedElements, 
   canvasConfig,
   onUpdateElement,
+  onUpdateElements,
+  onUpdateCanvas,
   onDelete,
-  onDuplicate
+  onDuplicate,
+  onAlign,
+  onDistribute,
+  onLayerOrder
 }) => {
   const [activePopover, setActivePopover] = useState<string | null>(null);
+  const [activeSubPopover, setActiveSubPopover] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [positionTab, setPositionTab] = useState<'align' | 'layers'>('align');
 
-  // Close popovers on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        setActivePopover(null);
-      }
+        const target = event.target as HTMLElement;
+        // Ignore if clicking inside any popover content
+        if (target.closest('.popover-content')) return;
+
+        if (panelRef.current && !panelRef.current.contains(target)) {
+            setActivePopover(null);
+            setActiveSubPopover(null);
+        }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!selectedElement) {
+  const togglePopover = (name: string) => {
+      setActivePopover(activePopover === name ? null : name);
+      setActiveSubPopover(null);
+  };
+
+  const selectedIds = selectedElements.map(el => el.id);
+  const singleSelection = selectedElements.length === 1 ? selectedElements[0] : null;
+  const isGrouped = selectedElements.length > 1 && new Set(selectedElements.map(e => e.groupId)).size === 1 && !!selectedElements[0].groupId;
+
+  // --- FILTER CHANGE HANDLER ---
+  const handleFilterChange = (key: keyof NonNullable<CanvasElement['filters']>, value: number) => {
+      if (!singleSelection) return;
+      const currentFilters = singleSelection.filters || { brightness: 100, contrast: 100, saturation: 100, grayscale: 0, blur: 0 };
+      onUpdateElement(singleSelection.id, { 
+          filters: { ...currentFilters, [key]: value } 
+      });
+  };
+
+  const extractDocumentColors = () => {
+      const colors = new Set<string>();
+      if (canvasConfig.backgroundColor) colors.add(canvasConfig.backgroundColor);
+      return Array.from(colors);
+  };
+
+  const renderPositionPopover = () => (
+      <div className="popover-content absolute top-full right-0 mt-2 w-[340px] bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100 text-white cursor-default origin-top-right">
+            {/* Tabs */}
+            <div className="flex border-b border-white/10">
+                <button onClick={() => setPositionTab('align')} className={`flex-1 py-3 text-sm font-medium transition-colors ${positionTab === 'align' ? 'text-white border-b-2 border-indigo-500' : 'text-gray-400 hover:text-white'}`}>Align</button>
+                <button onClick={() => setPositionTab('layers')} className={`flex-1 py-3 text-sm font-medium transition-colors ${positionTab === 'layers' ? 'text-white border-b-2 border-indigo-500' : 'text-gray-400 hover:text-white'}`}>Layers</button>
+            </div>
+
+            <div className="p-5 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                {positionTab === 'align' && (
+                    <>
+                        {/* Layer Order */}
+                        <div className="mb-6 grid grid-cols-2 gap-3">
+                             <button onClick={() => onLayerOrder('forward')} className="flex items-center justify-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded border border-white/5 text-xs text-gray-300 transition-colors"><MoveUp size={14}/> Forward</button>
+                             <button onClick={() => onLayerOrder('backward')} className="flex items-center justify-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded border border-white/5 text-xs text-gray-300 transition-colors"><MoveDown size={14}/> Backward</button>
+                             <button onClick={() => onLayerOrder('front')} className="flex items-center justify-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded border border-white/5 text-xs text-gray-300 transition-colors"><ArrowUpToLine size={14}/> To Front</button>
+                             <button onClick={() => onLayerOrder('back')} className="flex items-center justify-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded border border-white/5 text-xs text-gray-300 transition-colors"><ArrowDownToLine size={14}/> To Back</button>
+                        </div>
+
+                        {/* Alignment */}
+                        <div className="mb-6">
+                            <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">Align to page</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={() => onAlign('top')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignStartHorizontal size={14} className="rotate-180"/> Top</button>
+                                <button onClick={() => onAlign('left')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignStartVertical size={14}/> Left</button>
+                                <button onClick={() => onAlign('middle')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignCenterHorizontal size={14}/> Middle</button>
+                                <button onClick={() => onAlign('center')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignCenterVertical size={14}/> Center</button>
+                                <button onClick={() => onAlign('bottom')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignEndHorizontal size={14}/> Bottom</button>
+                                <button onClick={() => onAlign('right')} className="flex items-center gap-2 px-3 py-2 bg-[#2a2a2a] hover:bg-[#333] rounded text-xs text-gray-300 transition-colors"><AlignEndVertical size={14}/> Right</button>
+                            </div>
+                        </div>
+
+                        {/* Advanced (Dimensions) */}
+                        {singleSelection && (
+                            <div>
+                                <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-3">Advanced</h4>
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <div className="bg-[#2a2a2a] rounded border border-white/5 px-2 py-1">
+                                        <label className="text-[10px] text-gray-500 block">Width</label>
+                                        <div className="flex items-center">
+                                            <input 
+                                                type="number" 
+                                                value={Math.round(singleSelection.width)} 
+                                                onChange={(e) => onUpdateElement(singleSelection.id, { width: parseInt(e.target.value) })}
+                                                className="w-full bg-transparent text-xs text-white outline-none" 
+                                            />
+                                            <span className="text-[10px] text-gray-500">px</span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-[#2a2a2a] rounded border border-white/5 px-2 py-1">
+                                        <label className="text-[10px] text-gray-500 block">Height</label>
+                                        <div className="flex items-center">
+                                            <input 
+                                                type="number" 
+                                                value={Math.round(singleSelection.height)} 
+                                                onChange={(e) => onUpdateElement(singleSelection.id, { height: parseInt(e.target.value) })}
+                                                className="w-full bg-transparent text-xs text-white outline-none" 
+                                            />
+                                            <span className="text-[10px] text-gray-500">px</span>
+                                        </div>
+                                    </div>
+                                     <div className="bg-[#2a2a2a] rounded border border-white/5 px-2 py-1">
+                                        <label className="text-[10px] text-gray-500 block">X</label>
+                                        <input 
+                                            type="number" 
+                                            value={Math.round(singleSelection.x)} 
+                                            onChange={(e) => onUpdateElement(singleSelection.id, { x: parseInt(e.target.value) })}
+                                            className="w-full bg-transparent text-xs text-white outline-none" 
+                                        />
+                                    </div>
+                                     <div className="bg-[#2a2a2a] rounded border border-white/5 px-2 py-1">
+                                        <label className="text-[10px] text-gray-500 block">Y</label>
+                                        <input 
+                                            type="number" 
+                                            value={Math.round(singleSelection.y)} 
+                                            onChange={(e) => onUpdateElement(singleSelection.id, { y: parseInt(e.target.value) })}
+                                            className="w-full bg-transparent text-xs text-white outline-none" 
+                                        />
+                                    </div>
+                                     <div className="bg-[#2a2a2a] rounded border border-white/5 px-2 py-1">
+                                        <label className="text-[10px] text-gray-500 block">Rotate</label>
+                                        <div className="flex items-center">
+                                            <input 
+                                                type="number" 
+                                                value={Math.round(singleSelection.rotation)} 
+                                                onChange={(e) => onUpdateElement(singleSelection.id, { rotation: parseInt(e.target.value) })}
+                                                className="w-full bg-transparent text-xs text-white outline-none" 
+                                            />
+                                            <span className="text-[10px] text-gray-500">°</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {positionTab === 'layers' && (
+                    <div className="text-sm text-gray-400 text-center py-4">
+                        Use the Layers panel in the sidebar for drag-and-drop reordering.
+                    </div>
+                )}
+            </div>
+      </div>
+  );
+
+  const renderColorPopover = (targetProp: 'color' | 'backgroundColor' | 'borderColor', initialColor: string = '#000000') => (
+      <div className="popover-content absolute top-full left-0 mt-2 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100 p-3 max-h-[80vh] overflow-y-auto custom-scrollbar">
+           <ColorPickerPanel 
+                color={initialColor} 
+                onChange={(c) => onUpdateElements(selectedIds, { [targetProp]: c })}
+                documentColors={extractDocumentColors()}
+           />
+      </div>
+  );
+
+  // Background Color Logic (No Selection)
+  if (selectedElements.length === 0) {
     return (
-      <div className="h-12 bg-white border-b border-slate-200 flex items-center px-6 shadow-sm z-20 relative">
-          <span className="text-xs font-medium text-slate-400 select-none">Select an element to edit properties</span>
+      <div ref={panelRef} className="h-12 bg-[#18191b] border-b border-[#2a2a2a] flex items-center px-4 shadow-sm z-20 relative text-white">
+         <div className="flex items-center gap-3 relative">
+             <button 
+                onClick={() => togglePopover('bgColor')}
+                className={`flex items-center gap-2 px-1 py-1 rounded hover:bg-white/10 transition-colors relative border border-transparent ${activePopover === 'bgColor' ? 'bg-white/10' : ''}`}
+                title="Background Color"
+             >
+                 <div className="w-6 h-6 rounded shadow-sm border border-white/20" style={{ background: canvasConfig.backgroundColor }}></div>
+             </button>
+             <span className="text-xs font-medium text-gray-400">Page Background</span>
+             
+             {activePopover === 'bgColor' && (
+                <div className="popover-content absolute top-full left-0 mt-2 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100 p-3 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                    <ColorPickerPanel 
+                        color={canvasConfig.backgroundColor} 
+                        onChange={(c) => onUpdateCanvas({ backgroundColor: c, background: undefined })}
+                    />
+                </div>
+             )}
+         </div>
       </div>
     );
   }
 
-  const updateFilter = (key: keyof ElementFilters, value: number) => {
-    const currentFilters = selectedElement.filters || { brightness: 100, contrast: 100, saturation: 100, grayscale: 0, blur: 0 };
-    onUpdateElement(selectedElement.id, {
-        filters: { ...currentFilters, [key]: value }
-    });
-  };
-
-  const handleAlign = (type: 'h-center' | 'v-center' | 'top' | 'bottom' | 'left' | 'right') => {
-      const updates: Partial<CanvasElement> = {};
-      switch(type) {
-          case 'h-center': updates.x = (canvasConfig.width - selectedElement.width) / 2; break;
-          case 'v-center': updates.y = (canvasConfig.height - selectedElement.height) / 2; break;
-          case 'top': updates.y = 0; break;
-          case 'bottom': updates.y = canvasConfig.height - selectedElement.height; break;
-          case 'left': updates.x = 0; break;
-          case 'right': updates.x = canvasConfig.width - selectedElement.width; break;
-      }
-      onUpdateElement(selectedElement.id, updates);
-      setActivePopover(null);
-  };
-
-  const togglePopover = (name: string) => {
-      setActivePopover(activePopover === name ? null : name);
-  };
-
   return (
-    <div ref={panelRef} className="h-12 bg-white border-b border-slate-200 flex items-center px-4 justify-between animate-in slide-in-from-top-1 duration-200 z-30 relative shadow-sm">
+    <div ref={panelRef} className="h-12 bg-[#18191b] border-b border-[#2a2a2a] flex items-center px-3 justify-between text-white z-30 relative select-none">
       
       {/* Left: Element Specific Tools */}
-      <div className="flex items-center h-full">
+      <div className="flex items-center h-full gap-1">
         
-        {/* COLOR PICKER */}
-        {(selectedElement.type === 'rectangle' || selectedElement.type === 'circle' || selectedElement.type === 'text') && (
+        {singleSelection && singleSelection.type === 'text' && (
             <>
-                <div className="flex items-center gap-2 relative">
-                    <button 
-                        className="w-8 h-8 rounded border border-slate-300 shadow-sm relative overflow-hidden transition-all hover:ring-2 hover:ring-indigo-100 group"
-                        title="Color"
-                    >
-                        <input
-                            type="color"
-                            value={selectedElement.type === 'text' ? selectedElement.color : selectedElement.backgroundColor}
-                            onChange={(e) => onUpdateElement(selectedElement.id, 
-                                selectedElement.type === 'text' 
-                                    ? { color: e.target.value } 
-                                    : { backgroundColor: e.target.value }
-                            )}
-                            className="absolute inset-0 w-[200%] h-[200%] -left-1/2 -top-1/2 p-0 border-0 cursor-pointer opacity-0"
-                        />
-                        <div 
-                            className="w-full h-full"
-                            style={{ backgroundColor: selectedElement.type === 'text' ? selectedElement.color : selectedElement.backgroundColor }}
-                        />
+                {/* ... Font Select ... */}
+                <div className="relative group mr-1">
+                    <button className="flex items-center gap-2 cursor-pointer hover:bg-white/10 px-2 py-1.5 rounded text-white text-sm font-normal min-w-[120px] justify-between border border-transparent hover:border-white/20 transition-all">
+                        <span className="truncate max-w-[100px]">{singleSelection.fontFamily || 'Inter'}</span>
+                        <ChevronDown size={12} className="text-gray-400" />
                     </button>
-                </div>
-                <Divider />
-            </>
-        )}
-
-        {/* TEXT TOOLS */}
-        {selectedElement.type === 'text' && (
-            <>
-                {/* Font Family */}
-                <div className="relative group">
-                    <div className="flex items-center gap-1 cursor-pointer hover:bg-slate-100 px-2 py-1 rounded-md text-slate-700 text-sm font-medium">
-                        <Type size={14} className="text-slate-400"/>
-                        <select 
-                            className="bg-transparent border-none outline-none cursor-pointer w-28 text-sm appearance-none"
-                            value={selectedElement.fontFamily || 'Inter'}
-                            onChange={(e) => onUpdateElement(selectedElement.id, { fontFamily: e.target.value })}
-                        >
-                            <option value="Inter">Inter</option>
-                            <option value="Roboto">Roboto</option>
-                            <option value="Open Sans">Open Sans</option>
-                            <option value="Playfair Display">Playfair</option>
-                            <option value="Merriweather">Merriweather</option>
-                            <option value="Arial">Arial</option>
-                            <option value="Courier New">Courier</option>
-                        </select>
-                        <ChevronDown size={12} className="text-slate-400" />
-                    </div>
+                     {/* Simplified select for demo */}
+                    <select 
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                        value={singleSelection.fontFamily || 'Inter'}
+                        onChange={(e) => onUpdateElement(singleSelection.id, { fontFamily: e.target.value })}
+                    >
+                        <option value="Inter">Inter</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Playfair Display">Playfair Display</option>
+                        <option value="Montserrat">Montserrat</option>
+                        <option value="Open Sans">Open Sans</option>
+                    </select>
                 </div>
                 
-                <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                <div className="w-px h-5 bg-white/10 mx-1"></div>
                 
                 {/* Font Size */}
-                <div className="flex items-center border border-slate-200 rounded-md overflow-hidden h-8">
-                    <button onClick={() => onUpdateElement(selectedElement.id, { fontSize: Math.max(8, (selectedElement.fontSize || 16) - 1) })} className="hover:bg-slate-50 px-2 h-full text-slate-500 border-r border-slate-100">-</button>
-                    <input className="w-10 text-center text-sm border-none bg-transparent outline-none font-medium text-slate-700" value={selectedElement.fontSize} onChange={(e) => onUpdateElement(selectedElement.id, { fontSize: parseInt(e.target.value) || 16 })}/>
-                    <button onClick={() => onUpdateElement(selectedElement.id, { fontSize: (selectedElement.fontSize || 16) + 1 })} className="hover:bg-slate-50 px-2 h-full text-slate-500 border-l border-slate-100">+</button>
+                <div className="flex items-center border border-white/20 rounded overflow-hidden h-7 mx-1 group hover:border-white/40 transition-colors">
+                    <button onClick={() => onUpdateElement(singleSelection.id, { fontSize: Math.max(6, (singleSelection.fontSize || 16) - 1) })} className="hover:bg-white/10 px-2 h-full text-white">-</button>
+                    <input className="w-10 text-center text-sm border-none bg-transparent outline-none text-white font-medium" value={singleSelection.fontSize} onChange={(e) => onUpdateElement(singleSelection.id, { fontSize: parseInt(e.target.value) || 16 })}/>
+                    <button onClick={() => onUpdateElement(singleSelection.id, { fontSize: (singleSelection.fontSize || 16) + 1 })} className="hover:bg-white/10 px-2 h-full text-white">+</button>
                 </div>
 
-                <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                {/* Styling */}
-                <div className="flex items-center gap-1">
-                     <ToolButton icon={Bold} isActive={selectedElement.fontWeight === 'bold'} onClick={() => onUpdateElement(selectedElement.id, { fontWeight: selectedElement.fontWeight === 'bold' ? 'normal' : 'bold' })} />
-                     <ToolButton icon={Italic} isActive={selectedElement.fontStyle === 'italic'} onClick={() => onUpdateElement(selectedElement.id, { fontStyle: selectedElement.fontStyle === 'italic' ? 'normal' : 'italic' })} />
-                     <ToolButton icon={Underline} isActive={selectedElement.textDecoration === 'underline'} onClick={() => onUpdateElement(selectedElement.id, { textDecoration: selectedElement.textDecoration === 'underline' ? 'none' : 'underline' })} />
-                </div>
+                 {/* Text Color */}
+                 <div className="relative">
+                     <button 
+                        onClick={() => togglePopover('textColor')}
+                        className={`w-7 h-7 rounded border border-white/20 relative overflow-hidden mx-1 hover:border-white/50 transition-colors ${activePopover === 'textColor' ? 'ring-2 ring-indigo-500' : ''}`}
+                        title="Text Color"
+                     >
+                         <div className="w-full h-full" style={{ backgroundColor: singleSelection.color }}></div>
+                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none mix-blend-difference">
+                             <span className="text-[10px] font-bold text-white">A</span>
+                         </div>
+                     </button>
+                     {activePopover === 'textColor' && renderColorPopover('color', singleSelection.color)}
+                 </div>
 
-                <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                 <div className="w-px h-5 bg-white/10 mx-1"></div>
 
-                 {/* Alignment */}
-                 <div className="flex items-center gap-1">
-                     <ToolButton icon={AlignLeft} isActive={selectedElement.textAlign === 'left' || !selectedElement.textAlign} onClick={() => onUpdateElement(selectedElement.id, { textAlign: 'left' })} />
-                     <ToolButton icon={AlignCenter} isActive={selectedElement.textAlign === 'center'} onClick={() => onUpdateElement(selectedElement.id, { textAlign: 'center' })} />
-                     <ToolButton icon={AlignRight} isActive={selectedElement.textAlign === 'right'} onClick={() => onUpdateElement(selectedElement.id, { textAlign: 'right' })} />
-                </div>
-                
-                <Divider />
+                <ToolButton icon={Bold} isActive={singleSelection.fontWeight === 'bold'} onClick={() => onUpdateElement(singleSelection.id, { fontWeight: singleSelection.fontWeight === 'bold' ? 'normal' : 'bold' })} />
+                <ToolButton icon={Italic} isActive={singleSelection.fontStyle === 'italic'} onClick={() => onUpdateElement(singleSelection.id, { fontStyle: singleSelection.fontStyle === 'italic' ? 'normal' : 'italic' })} />
+                <ToolButton icon={Underline} isActive={singleSelection.textDecoration === 'underline'} onClick={() => onUpdateElement(singleSelection.id, { textDecoration: singleSelection.textDecoration === 'underline' ? 'none' : 'underline' })} />
+                <ToolButton icon={Type} isActive={singleSelection.textTransform === 'uppercase'} onClick={() => onUpdateElement(singleSelection.id, { textTransform: singleSelection.textTransform === 'uppercase' ? 'none' : 'uppercase' })} label="Uppercase" />
+
+                <div className="w-px h-5 bg-white/10 mx-1"></div>
+
+                 <ToolButton icon={AlignLeft} isActive={singleSelection.textAlign === 'left' || !singleSelection.textAlign} onClick={() => onUpdateElement(singleSelection.id, { textAlign: 'left' })} />
+                 <ToolButton icon={AlignCenter} isActive={singleSelection.textAlign === 'center'} onClick={() => onUpdateElement(singleSelection.id, { textAlign: 'center' })} />
+                 <ToolButton icon={AlignRight} isActive={singleSelection.textAlign === 'right'} onClick={() => onUpdateElement(singleSelection.id, { textAlign: 'right' })} />
+                 
+                 <div className="w-px h-5 bg-white/10 mx-1"></div>
+
+                 <button className="text-xs font-medium px-3 py-1.5 hover:bg-white/10 rounded text-white mx-1">Effects</button>
             </>
         )}
 
-        {/* IMAGE FILTERS */}
-        {selectedElement.type === 'image' && (
+        {/* IMAGE TOOLS */}
+        {singleSelection && singleSelection.type === 'image' && (
              <>
+                <div className="relative">
+                    <button 
+                        onClick={() => togglePopover('filters')}
+                        className={`text-xs font-medium px-3 py-1.5 rounded text-white border border-white/20 mx-1 transition-colors ${activePopover === 'filters' ? 'bg-indigo-600 border-indigo-600' : 'hover:bg-white/10'}`}
+                    >
+                        Edit photo
+                    </button>
+                    {activePopover === 'filters' && (
+                        <div className="popover-content absolute top-full left-0 mt-2 w-64 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 p-4 z-50 animate-in fade-in zoom-in-95 duration-100 text-white">
+                             <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider mb-4">Adjustments</div>
+                             <div className="space-y-4">
+                                 {[
+                                     { label: 'Brightness', key: 'brightness', min: 0, max: 200, def: 100 },
+                                     { label: 'Contrast', key: 'contrast', min: 0, max: 200, def: 100 },
+                                     { label: 'Saturation', key: 'saturation', min: 0, max: 200, def: 100 },
+                                     { label: 'Blur', key: 'blur', min: 0, max: 20, def: 0 },
+                                     { label: 'Grayscale', key: 'grayscale', min: 0, max: 100, def: 0 },
+                                 ].map(filter => (
+                                     <div key={filter.key} className="space-y-1">
+                                         <div className="flex justify-between text-xs text-gray-300">
+                                             <span>{filter.label}</span>
+                                             <span>{singleSelection.filters?.[filter.key as keyof NonNullable<CanvasElement['filters']>] ?? filter.def}</span>
+                                         </div>
+                                         <input 
+                                            type="range" min={filter.min} max={filter.max}
+                                            value={singleSelection.filters?.[filter.key as keyof NonNullable<CanvasElement['filters']>] ?? filter.def}
+                                            onChange={(e) => handleFilterChange(filter.key as any, parseInt(e.target.value))}
+                                            className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500"
+                                         />
+                                     </div>
+                                 ))}
+                             </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="w-px h-5 bg-white/10 mx-1"></div>
+
+                 {/* Flip */}
+                <div className="relative">
+                    <button onClick={() => togglePopover('flip')} className={`text-xs font-medium px-3 py-1.5 rounded text-white mx-1 transition-colors ${activePopover === 'flip' ? 'bg-white/20' : 'hover:bg-white/10'}`}>Flip</button>
+                    {activePopover === 'flip' && (
+                        <div className="popover-content absolute top-full left-0 mt-2 w-36 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 p-2 z-50 animate-in fade-in zoom-in-95 duration-100 text-white">
+                            <button onClick={() => onUpdateElement(singleSelection.id, { flipX: !singleSelection.flipX })} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#2a2a2a] rounded text-xs text-gray-300 transition-colors"><FlipHorizontal size={14} /> Horizontal</button>
+                             <button onClick={() => onUpdateElement(singleSelection.id, { flipY: !singleSelection.flipY })} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#2a2a2a] rounded text-xs text-gray-300 transition-colors"><FlipVertical size={14} /> Vertical</button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Corner Rounding for Images */}
+                 <div className="w-px h-5 bg-white/10 mx-1"></div>
                  <div className="relative">
                      <button 
-                        onClick={() => togglePopover('filters')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activePopover === 'filters' ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-100 text-slate-700'}`}
+                         onClick={() => togglePopover('border')} 
+                         className={`text-xs font-medium px-3 py-1.5 hover:bg-white/10 rounded text-white mx-1 ${activePopover === 'border' ? 'bg-white/10' : ''}`}
                      >
-                        <SlidersVertical size={16} /> Edit Image
+                         Border
                      </button>
-
-                     {activePopover === 'filters' && (
-                         <div className="absolute top-full left-0 mt-3 w-72 bg-white rounded-xl shadow-2xl border border-slate-100 p-5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                             <div className="flex justify-between items-center mb-4">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Image Adjustments</h4>
-                             </div>
-                             <div className="space-y-5">
-                                 {['Brightness', 'Contrast', 'Saturation'].map((filter) => {
-                                     const key = filter.toLowerCase() as keyof ElementFilters;
-                                     return (
-                                        <div key={key} className="space-y-2">
-                                            <div className="flex justify-between text-xs text-slate-600 font-medium">
-                                                <span>{filter}</span>
-                                                <span className="text-slate-400">{selectedElement.filters?.[key] ?? 100}%</span>
-                                            </div>
-                                            <input 
-                                                type="range" min="0" max="200" 
-                                                value={selectedElement.filters?.[key] ?? 100} 
-                                                onChange={(e) => updateFilter(key, parseInt(e.target.value))} 
-                                                className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-500"
-                                            />
-                                        </div>
-                                     )
-                                 })}
-                                  <div className="pt-2 border-t border-slate-100">
-                                      <div className="flex justify-between text-xs text-slate-600 font-medium mb-2">
-                                          <span>Grayscale</span>
-                                          <span className="text-slate-400">{selectedElement.filters?.grayscale ?? 0}%</span>
-                                      </div>
-                                      <input type="range" min="0" max="100" value={selectedElement.filters?.grayscale ?? 0} onChange={(e) => updateFilter('grayscale', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-500"/>
+                     {activePopover === 'border' && (
+                         <div className="popover-content absolute top-full left-0 mt-2 w-64 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 p-4 z-50 animate-in fade-in zoom-in-95 duration-100 text-white">
+                             <div className="space-y-4">
+                                 {/* Corner Rounding */}
+                                 <div>
+                                    <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Corner Rounding</span><span>{singleSelection.borderRadius || 0}</span></div>
+                                    <input type="range" min="0" max="100" value={singleSelection.borderRadius || 0} onChange={(e) => onUpdateElement(singleSelection.id, { borderRadius: parseInt(e.target.value) })} className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500" />
                                  </div>
+                                 {/* Border Style */}
+                                 <div>
+                                     <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Border Style</span></div>
+                                     <div className="grid grid-cols-4 gap-2">
+                                         {['none', 'solid', 'dashed', 'dotted'].map(s => (
+                                             <button key={s} onClick={() => onUpdateElement(singleSelection.id, { borderStyle: s as any })} className={`h-8 border border-gray-600 rounded hover:bg-white/10 ${singleSelection.borderStyle === s ? 'border-indigo-500 bg-indigo-500/20' : ''}`}>
+                                                 {s === 'none' ? <span className="text-[10px]">None</span> : <div className="w-full h-0.5 bg-current mx-1" style={{ borderStyle: s as any, borderWidth: 1 }}></div>}
+                                             </button>
+                                         ))}
+                                     </div>
+                                 </div>
+                                 {/* Border Width */}
+                                 {(singleSelection.borderStyle && singleSelection.borderStyle !== 'none') && (
+                                     <>
+                                        <div>
+                                            <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Weight</span><span>{singleSelection.borderWidth || 0}</span></div>
+                                            <input type="range" min="0" max="20" value={singleSelection.borderWidth || 0} onChange={(e) => onUpdateElement(singleSelection.id, { borderWidth: parseInt(e.target.value) })} className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500" />
+                                        </div>
+                                        <div>
+                                             <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Color</span></div>
+                                             <div className="w-8 h-8 rounded border border-white/20 relative cursor-pointer" onClick={(e) => { e.stopPropagation(); setActiveSubPopover(activeSubPopover === 'borderColor' ? null : 'borderColor'); }}>
+                                                  <div className="w-full h-full rounded" style={{ backgroundColor: singleSelection.borderColor || '#000' }}></div>
+                                             </div>
+                                             {activeSubPopover === 'borderColor' && (
+                                                 <div className="popover-content absolute top-full left-0 mt-2 z-50 bg-[#1e1e1e] border border-white/10 rounded-xl p-2 shadow-2xl max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                                     <ColorPickerPanel color={singleSelection.borderColor || '#000'} onChange={(c) => { onUpdateElement(singleSelection.id, { borderColor: c }); }} />
+                                                 </div>
+                                             )}
+                                        </div>
+                                     </>
+                                 )}
                              </div>
                          </div>
                      )}
                  </div>
-                 <Divider />
              </>
         )}
 
-        {/* OPACITY POPUP */}
-        <div className="relative">
-             <button 
-                onClick={() => togglePopover('opacity')}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${activePopover === 'opacity' ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-100 text-slate-600'}`}
-                title="Transparency"
-             >
-                <Droplet size={18} />
-             </button>
-
-             {activePopover === 'opacity' && (
-                <div className="absolute top-full left-0 mt-3 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-4 z-50 animate-in fade-in zoom-in-95 duration-100">
-                    <div className="flex justify-between text-xs text-slate-500 font-bold uppercase tracking-wider mb-3">Transparency</div>
-                    <div className="flex items-center gap-3">
-                        <input 
-                            type="range" min="0" max="1" step="0.01" 
-                            value={selectedElement.opacity ?? 1} 
-                            onChange={(e) => onUpdateElement(selectedElement.id, { opacity: parseFloat(e.target.value) })} 
-                            className="w-full h-1.5 bg-slate-100 rounded-full appearance-none cursor-pointer accent-indigo-600"
-                        />
-                        <span className="text-xs font-medium text-slate-600 w-8 text-right">{Math.round((selectedElement.opacity ?? 1) * 100)}%</span>
-                    </div>
+        {/* SHAPE TOOLS */}
+        {singleSelection && (singleSelection.type === 'rectangle' || singleSelection.type === 'circle') && (
+            <>
+                <div className="relative">
+                    <button 
+                        onClick={() => togglePopover('fillColor')}
+                        className={`w-7 h-7 rounded border border-white/20 relative overflow-hidden mx-1 ${activePopover === 'fillColor' ? 'ring-2 ring-indigo-500' : ''}`}
+                        title="Color"
+                    >
+                        <div className="w-full h-full" style={{ background: singleSelection.backgroundColor }}></div>
+                    </button>
+                    {activePopover === 'fillColor' && renderColorPopover('backgroundColor', singleSelection.backgroundColor)}
                 </div>
-             )}
-        </div>
 
-        {/* POSITION POPUP */}
-        <div className="relative ml-1">
-             <button 
-                onClick={() => togglePopover('position')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activePopover === 'position' ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-100 text-slate-700'}`}
-             >
-                 Position <ChevronDown size={14} className={`transition-transform duration-200 ${activePopover === 'position' ? 'rotate-180' : ''}`}/>
-             </button>
-
-             {activePopover === 'position' && (
-                 <div className="absolute top-full left-0 mt-3 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 z-50 animate-in fade-in zoom-in-95 duration-100 grid grid-cols-2 gap-1">
-                     <div className="col-span-2 px-2 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Align to Page</div>
-                     <button onClick={() => handleAlign('left')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><ArrowLeftToLine size={14}/> Left</button>
-                     <button onClick={() => handleAlign('h-center')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><AlignCenter size={14}/> Center</button>
-                     <button onClick={() => handleAlign('right')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><ArrowRightToLine size={14}/> Right</button>
-                     <button onClick={() => handleAlign('top')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><ArrowUpToLine size={14}/> Top</button>
-                     <button onClick={() => handleAlign('v-center')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><LayoutGrid size={14}/> Middle</button>
-                     <button onClick={() => handleAlign('bottom')} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><ArrowDownToLine size={14}/> Bottom</button>
-                     
-                     <div className="col-span-2 h-px bg-slate-100 my-1"></div>
-                     
-                     <div className="col-span-2 px-2 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Layering</div>
-                     <button onClick={() => {onUpdateElement(selectedElement.id, { zIndex: (selectedElement.zIndex || 1) + 1 }); }} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><Layers size={14} className="rotate-180"/> Bring Forward</button>
-                     <button onClick={() => {onUpdateElement(selectedElement.id, { zIndex: Math.max(0, (selectedElement.zIndex || 1) - 1) }); }} className="flex items-center gap-3 px-2 py-2 hover:bg-slate-50 rounded text-xs text-slate-600 transition-colors"><Layers size={14}/> Send Backward</button>
+                 <div className="w-px h-5 bg-white/10 mx-1"></div>
+                 
+                 {/* Border & Corners */}
+                 <div className="relative">
+                     <button 
+                        onClick={() => togglePopover('border')} 
+                        className={`text-xs font-medium px-3 py-1.5 hover:bg-white/10 rounded text-white mx-1 ${activePopover === 'border' ? 'bg-white/10' : ''}`}
+                     >
+                         Border
+                     </button>
+                     {activePopover === 'border' && (
+                         <div className="popover-content absolute top-full left-0 mt-2 w-64 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 p-4 z-50 animate-in fade-in zoom-in-95 duration-100 text-white">
+                             <div className="space-y-4">
+                                 {/* Corner Rounding */}
+                                 {singleSelection.type === 'rectangle' && (
+                                     <div>
+                                        <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Corner Rounding</span><span>{singleSelection.borderRadius || 0}</span></div>
+                                        <input type="range" min="0" max="100" value={singleSelection.borderRadius || 0} onChange={(e) => onUpdateElement(singleSelection.id, { borderRadius: parseInt(e.target.value) })} className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500" />
+                                     </div>
+                                 )}
+                                 
+                                 {/* Border Style */}
+                                 <div>
+                                     <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Border Style</span></div>
+                                     <div className="grid grid-cols-4 gap-2">
+                                         {['none', 'solid', 'dashed', 'dotted'].map(s => (
+                                             <button key={s} onClick={() => onUpdateElement(singleSelection.id, { borderStyle: s as any })} className={`h-8 border border-gray-600 rounded hover:bg-white/10 ${singleSelection.borderStyle === s ? 'border-indigo-500 bg-indigo-500/20' : ''}`}>
+                                                 {s === 'none' ? <span className="text-[10px]">None</span> : <div className="w-full h-0.5 bg-current mx-1" style={{ borderStyle: s as any, borderWidth: 1 }}></div>}
+                                             </button>
+                                         ))}
+                                     </div>
+                                 </div>
+                                 
+                                 {/* Border Width & Color */}
+                                 {(singleSelection.borderStyle && singleSelection.borderStyle !== 'none') && (
+                                     <>
+                                        <div>
+                                            <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Weight</span><span>{singleSelection.borderWidth || 1}</span></div>
+                                            <input type="range" min="1" max="20" value={singleSelection.borderWidth || 1} onChange={(e) => onUpdateElement(singleSelection.id, { borderWidth: parseInt(e.target.value) })} className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500" />
+                                        </div>
+                                         <div className="relative">
+                                             <div className="flex justify-between text-xs text-gray-300 mb-2"><span>Border Color</span></div>
+                                             <div className="w-8 h-8 rounded border border-white/20 relative cursor-pointer" onClick={(e) => { e.stopPropagation(); setActiveSubPopover(activeSubPopover === 'borderColor' ? null : 'borderColor'); }}>
+                                                  <div className="w-full h-full rounded" style={{ backgroundColor: singleSelection.borderColor || '#000' }}></div>
+                                             </div>
+                                             {activeSubPopover === 'borderColor' && (
+                                                 <div className="popover-content absolute top-full left-0 mt-2 z-[60] bg-[#1e1e1e] border border-white/10 rounded-xl p-2 shadow-2xl max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                                     <ColorPickerPanel color={singleSelection.borderColor || '#000'} onChange={(c) => { onUpdateElement(singleSelection.id, { borderColor: c }); }} />
+                                                 </div>
+                                             )}
+                                        </div>
+                                     </>
+                                 )}
+                             </div>
+                         </div>
+                     )}
                  </div>
-             )}
-        </div>
+            </>
+        )}
+
+        {selectedElements.length > 1 && (
+            <div className="flex items-center gap-2">
+                 <button 
+                    onClick={() => isGrouped ? onUpdateElements(selectedIds, { groupId: undefined }) : onUpdateElements(selectedIds, { groupId: Date.now().toString() })} 
+                    className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded text-xs font-medium transition-colors"
+                 >
+                     {isGrouped ? <Ungroup size={14} /> : <Group size={14} />}
+                     {isGrouped ? "Ungroup" : "Group"}
+                 </button>
+                 <span className="text-xs text-gray-500 bg-[#2a2a2a] px-2 py-0.5 rounded ml-2">{selectedElements.length} items</span>
+            </div>
+        )}
 
       </div>
 
-      {/* Right: General Actions */}
-      <div className="flex items-center gap-2 pl-4 border-l border-slate-200 h-8">
+      <div className="flex items-center gap-1 pl-4 border-l border-white/10 ml-2 h-6">
+         
+         {/* Position Button (Correctly Anchored) */}
+         <div className="relative">
+             <button 
+                onClick={() => togglePopover('position')}
+                className={`text-xs font-medium px-3 py-1.5 rounded text-white mx-1 transition-colors ${activePopover === 'position' ? 'bg-white/20' : 'hover:bg-white/10'}`}
+             >
+                 Position
+             </button>
+             {activePopover === 'position' && renderPositionPopover()}
+         </div>
+
          <ToolButton 
-            onClick={() => onUpdateElement(selectedElement.id, { locked: !selectedElement.locked })} 
-            isActive={selectedElement.locked}
-            icon={selectedElement.locked ? Lock : Unlock} 
-            label={selectedElement.locked ? "Unlock" : "Lock"}
+            onClick={() => togglePopover('opacity')} 
+            icon={Droplet} 
+            label="Transparency" 
+            isActive={activePopover === 'opacity'}
         />
-         <ToolButton onClick={() => onDuplicate(selectedElement.id)} icon={Copy} label="Duplicate" />
-         <button onClick={() => onDelete(selectedElement.id)} className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors" title="Delete">
-            <Trash2 size={18} />
-         </button>
+         {activePopover === 'opacity' && (
+                <div className="popover-content absolute top-full right-0 mt-2 w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 p-4 z-50 animate-in fade-in zoom-in-95 duration-100 text-white">
+                    <div className="flex justify-between text-[11px] text-gray-400 font-bold uppercase tracking-wider mb-3">Transparency</div>
+                    <div className="flex items-center gap-3">
+                        <input 
+                            type="range" min="0" max="1" step="0.01" 
+                            value={singleSelection?.opacity ?? 1} 
+                            onChange={(e) => onUpdateElements(selectedIds, { opacity: parseFloat(e.target.value) })} 
+                            className="w-full h-1 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500"
+                        />
+                        <span className="text-xs font-medium w-8 text-right">{Math.round((singleSelection?.opacity ?? 1) * 100)}%</span>
+                    </div>
+                </div>
+         )}
+         
+         <div className="w-px h-5 bg-white/10 mx-1"></div>
+
+         <ToolButton 
+            onClick={() => onDuplicate(selectedIds)} 
+            icon={Copy} 
+            label="Duplicate" 
+         />
+
+         <ToolButton 
+            onClick={() => onDelete(selectedIds)} 
+            icon={Trash2} 
+            label="Delete" 
+         />
+         
+         <ToolButton 
+            onClick={() => onUpdateElements(selectedIds, { locked: !selectedElements[0]?.locked })} 
+            isActive={selectedElements[0]?.locked}
+            icon={selectedElements[0]?.locked ? Lock : Unlock} 
+            label={selectedElements[0]?.locked ? "Unlock" : "Lock"}
+         />
       </div>
 
     </div>
