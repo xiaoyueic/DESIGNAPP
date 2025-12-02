@@ -162,33 +162,84 @@ const App: React.FC = () => {
 
   const addElement = (type: ElementType, content: string = '', styleOverrides: any = {}) => {
     const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-    const defaults = {
-        text: { width: 300, height: 50, fontSize: 32, content: content || 'Add text' },
-        rectangle: { width: 200, height: 200, backgroundColor: '#3b82f6' },
-        circle: { width: 200, height: 200, backgroundColor: '#8b5cf6' },
-        image: { width: 300, height: 300, content: content || 'https://picsum.photos/300/300' }
+
+    // Helper to finalize adding element to state
+    const commitElement = (w: number, h: number, finalContent: string) => {
+        const defaults = {
+            text: { width: 300, height: 50, fontSize: 32, content: finalContent || 'Add text' },
+            rectangle: { width: 200, height: 200, backgroundColor: '#3b82f6' },
+            circle: { width: 200, height: 200, backgroundColor: '#8b5cf6' },
+            image: { width: w || 300, height: h || 300, content: finalContent || 'https://picsum.photos/300/300' }
+        };
+
+        const base = defaults[type];
+        
+        // Merge calculated dims with potential overrides
+        // If styleOverrides has width/height (e.g. from template), they take precedence
+        const finalWidth = styleOverrides.width || base.width;
+        const finalHeight = styleOverrides.height || base.height;
+
+        const newElement: CanvasElement = {
+            id, type,
+            x: canvasConfig.width / 2 - (finalWidth / 2),
+            y: canvasConfig.height / 2 - (finalHeight / 2),
+            rotation: 0, zIndex: currentElements.length + 1,
+            color: '#000000', opacity: 1,
+            ...base, 
+            ...styleOverrides,
+            width: finalWidth,
+            height: finalHeight
+        };
+        
+        // Use callback form to ensure we have latest history if called from async context (Chat/Image Load)
+        setHistory(prev => {
+            const current = prev[prev.length - 1].elements;
+            newElement.zIndex = current.length + 1;
+            const newHistory = [...prev, { elements: [...current, newElement] }];
+            setHistoryStep(newHistory.length - 1);
+            return newHistory;
+        });
+        
+        setSelectedIds([id]);
     };
-    const base = defaults[type];
-    const newElement: CanvasElement = {
-      id, type,
-      x: canvasConfig.width / 2 - (base.width / 2),
-      y: canvasConfig.height / 2 - (base.height / 2),
-      rotation: 0, zIndex: currentElements.length + 1,
-      color: '#000000', opacity: 1,
-      ...base, ...styleOverrides
-    };
-    
-    // Use callback form to ensure we have latest history if called from async context (Chat)
-    setHistory(prev => {
-        const current = prev[prev.length - 1].elements;
-        // Fix zIndex based on *actual* latest elements
-        newElement.zIndex = current.length + 1;
-        const newHistory = [...prev, { elements: [...current, newElement] }];
-        setHistoryStep(newHistory.length - 1);
-        return newHistory;
-    });
-    
-    setSelectedIds([id]);
+
+    if (type === 'image') {
+        // If explicit size is provided (e.g. via AI tool calling), use it immediately
+        if (styleOverrides.width && styleOverrides.height) {
+            commitElement(styleOverrides.width, styleOverrides.height, content);
+            return;
+        }
+
+        // Otherwise load image to get natural dimensions
+        const imgUrl = content || 'https://picsum.photos/300/300';
+        const img = new Image();
+        img.src = imgUrl;
+        img.onload = () => {
+             let w = img.naturalWidth;
+             let h = img.naturalHeight;
+             const MAX_DIM = 500;
+             
+             // Scale down if image is huge
+             if (w > MAX_DIM || h > MAX_DIM) {
+                 const ratio = w / h;
+                 if (w > h) {
+                     w = MAX_DIM;
+                     h = MAX_DIM / ratio;
+                 } else {
+                     h = MAX_DIM;
+                     w = MAX_DIM * ratio;
+                 }
+             }
+             commitElement(w, h, imgUrl);
+        };
+        img.onerror = () => {
+            // Fallback if load fails
+            commitElement(300, 300, imgUrl);
+        };
+    } else {
+        // Shapes/Text
+        commitElement(0, 0, content);
+    }
   };
 
   const applyTemplate = (templateElements: CanvasElement[]) => {
